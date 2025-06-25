@@ -1,0 +1,205 @@
+"""
+AI Agent Module
+
+Main orchestrator class that coordinates news searching and email sending.
+"""
+
+import json
+from datetime import datetime
+from typing import List, Dict
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.schema import HumanMessage
+from langchain.tools import Tool
+from langchain.agents import AgentExecutor, create_react_agent
+from langchain import hub
+
+from .news_searcher import AINewsSearcher
+from .email_sender import EmailSender
+
+
+class AINewsAgent:
+    """Main AI agent that coordinates news searching and email sending"""
+    
+    def __init__(self, gemini_api_key: str, email_config: Dict):
+        # Initialize Gemini model
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            google_api_key=gemini_api_key,
+            temperature=0.3
+        )
+        
+        # Initialize tools
+        self.news_searcher = AINewsSearcher()
+        self.email_sender = EmailSender(**email_config)
+        
+        # Create LangChain tools
+        self.tools = [
+            Tool(
+                name="search_ai_news",
+                description="Search for latest AI news from RSS feeds",
+                func=self._search_news_tool
+            ),
+            Tool(
+                name="format_news_digest",
+                description="Format news articles into an email digest",
+                func=self._format_digest_tool
+            )
+        ]
+        
+        # Create agent
+        self.agent = self._create_agent()
+    
+    def _search_news_tool(self, query: str) -> str:
+        """Tool wrapper for news searching"""
+        articles = self.news_searcher.search_rss_feeds(max_articles=10)
+        google_articles = self.news_searcher.search_google_news(max_results=5)
+        all_articles = articles + google_articles
+        
+        # Remove duplicates based on title similarity
+        unique_articles = []
+        for article in all_articles:
+            is_duplicate = False
+            for existing in unique_articles:
+                if self.news_searcher.is_similar_title(article['title'], existing['title']):
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                unique_articles.append(article)
+        
+        return json.dumps(unique_articles[:10])
+    
+    def _format_digest_tool(self, articles_str: str) -> str:
+        """Tool wrapper for formatting news digest"""
+        try:
+            articles = json.loads(articles_str)
+            return self._create_html_digest(articles)
+        except Exception as e:
+            print(f"Error formatting articles: {e}")
+            return "Error formatting articles"
+    
+    def _create_agent(self):
+        """Create the LangChain agent"""
+        try:
+            # Get the react prompt from hub
+            prompt = hub.pull("hwchase17/react")
+            
+            # Create agent
+            agent = create_react_agent(self.llm, self.tools, prompt)
+            agent_executor = AgentExecutor(agent=agent, tools=self.tools, verbose=True)
+            
+            return agent_executor
+        except Exception as e:
+            print(f"Warning: Could not create LangChain agent: {e}")
+            return None
+    
+    def _create_html_digest(self, articles: List[Dict]) -> str:
+        """Create HTML email digest from articles"""
+        html_content = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                .header {{ background-color: #2c3e50; color: white; padding: 20px; text-align: center; }}
+                .article {{ margin: 20px 0; padding: 15px; border-left: 4px solid #3498db; background-color: #f8f9fa; }}
+                .title {{ font-size: 18px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }}
+                .meta {{ color: #7f8c8d; font-size: 12px; margin-bottom: 10px; }}
+                .summary {{ line-height: 1.6; }}
+                .link {{ color: #3498db; text-decoration: none; }}
+                .footer {{ margin-top: 30px; padding: 20px; background-color: #ecf0f1; text-align: center; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>🤖 AI News Daily Digest</h1>
+                <p>Latest AI News - {datetime.now().strftime('%B %d, %Y')}</p>
+            </div>
+        """
+        
+        for i, article in enumerate(articles, 1):
+            html_content += f"""
+            <div class="article">
+                <div class="title">{i}. {article['title']}</div>
+                <div class="meta">Source: {article['source']} | Published: {article['published']}</div>
+                <div class="summary">{article['summary']}</div>
+                <p><a href="{article['link']}" class="link">Read full article →</a></p>
+            </div>
+            """
+        
+        html_content += """
+            <div class="footer">
+                <p>This digest was generated by your AI News Agent</p>
+                <p>Stay updated with the latest in AI technology!</p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return html_content
+    
+    def generate_and_send_digest(self, recipient_email: str):
+        """Main function to generate and send news digest"""
+        try:
+            # Get news articles directly (simplified approach)
+            print("Searching for AI news...")
+            articles = self.news_searcher.search_rss_feeds(max_articles=10)
+            google_articles = self.news_searcher.search_google_news(max_results=5)
+            all_articles = articles + google_articles
+            
+            # Remove duplicates
+            unique_articles = []
+            for article in all_articles:
+                is_duplicate = False
+                for existing in unique_articles:
+                    if self.news_searcher.is_similar_title(article['title'], existing['title']):
+                        is_duplicate = True
+                        break
+                if not is_duplicate:
+                    unique_articles.append(article)
+            
+            if not unique_articles:
+                print("No new AI news found")
+                return
+            
+            print(f"Found {len(unique_articles)} unique articles")
+            
+            # Generate summary using Gemini (if available)
+            ai_summary = ""
+            try:
+                articles_text = "\n".join([f"- {art['title']}: {art['summary']}" for art in unique_articles[:10]])
+                
+                summary_prompt = f"""
+                Based on these AI news articles, create a brief executive summary (2-3 sentences) 
+                highlighting the most important trends and developments:
+                
+                {articles_text}
+                """
+                
+                summary_response = self.llm.invoke([HumanMessage(content=summary_prompt)])
+                ai_summary = summary_response.content
+                print("Generated AI summary")
+            except Exception as e:
+                print(f"Could not generate AI summary: {e}")
+                ai_summary = "Latest developments in AI technology and research."
+            
+            # Create HTML digest
+            html_digest = self._create_html_digest(unique_articles[:10])
+            
+            # Add AI summary to the beginning
+            if ai_summary:
+                html_digest = html_digest.replace(
+                    '</div>',
+                    f'<div class="summary" style="margin-top: 15px; font-style: italic; background-color: rgba(255,255,255,0.2); padding: 10px; border-radius: 5px;">{ai_summary}</div></div>',
+                    1  # Replace only the first occurrence
+                )
+            
+            # Send email
+            subject = f"🤖 AI News Digest - {datetime.now().strftime('%B %d, %Y')}"
+            success = self.email_sender.send_email(recipient_email, subject, html_digest)
+            
+            if success:
+                print(f"News digest sent successfully to {recipient_email}")
+            else:
+                print("Failed to send news digest")
+                
+        except Exception as e:
+            print(f"Error generating digest: {e}") 
