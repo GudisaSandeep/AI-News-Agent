@@ -23,7 +23,7 @@ An intelligent news aggregation and email digest system that automatically searc
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/ai-news-agent.git
+[   git clone https://github.com/yourusername/ai-news-agent.git](https://github.com/GudisaSandeep/AI-News-Agent)
    cd ai-news-agent
    ```
 
