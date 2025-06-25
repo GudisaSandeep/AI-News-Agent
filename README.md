@@ -2,6 +2,8 @@
 
 An intelligent news aggregation and email digest system that automatically searches, summarizes, and delivers the latest AI news to your inbox using Google's Gemini AI.
 
+# Demo Video
+
 ## ✨ Features
 
 - **Multi-Source News Aggregation**: Fetches AI news from TechCrunch, AI News, VentureBeat, MIT Technology Review, and Google News
