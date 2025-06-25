@@ -3,7 +3,6 @@
 An intelligent news aggregation and email digest system that automatically searches, summarizes, and delivers the latest AI news to your inbox using Google's Gemini AI.
 
 
-🎥 [Watch the video](docs/News Agent - Made with Clipchamp.mp4)
 
 
 ## ✨ Features
@@ -81,6 +80,8 @@ The agent fetches news from:
 - VentureBeat AI
 - MIT Technology Review
 - Google News
+
+
 
 ## 📁 Project Structure
 
